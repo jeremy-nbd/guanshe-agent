@@ -1,6 +1,6 @@
 # 观舌 · 网页健康观察 Agent
 
-在原有中医会诊项目上增加了对话式 Agent 首页。原会诊表单移至 `/classic`，原有 API 和资料保持可用。
+独立构建的对话式舌象健康观察 Web 应用。以一段连续对话完成信息收集、图片观察、知识检索和结果整理，桌面与手机均可使用。
 
 ## 启动 Agent
 
@@ -36,9 +36,9 @@ npm run dev -- --hostname 127.0.0.1 --port 3210
 
 ## 数据与能力边界
 
-新增 Agent 接口不将照片、对话或工具内容写入磁盘或原项目的外部监控。真实模式会向配置的模型供应商发送对话，视觉工具执行时发送照片；供应商的数据保留政策由其服务约定决定。前端的步骤列表是工具执行状态，不是模型内部推理。
+Agent 接口不将照片、对话或工具内容写入磁盘，不接入外部监控。真实模式会向配置的模型供应商发送对话，视觉工具执行时发送照片；供应商的数据保留政策由其服务约定决定。前端的步骤列表是工具执行状态，不是模型内部推理。
 
-这是本地试用版：没有账号、服务端历史记录、多用户隔离或公开服务配额控制，请勿直接暴露到公网。原版 `/classic` 使用原有实现和监控逻辑。新 Agent 的提示词约束其不确诊、不处方、不推荐药物剂量；这些约束不是医学可靠性保证，产品尚未经临床验证。
+这是本地试用版：没有账号、服务端历史记录、多用户隔离或公开服务配额控制，请勿直接暴露到公网。Agent 的提示词约束其不确诊、不处方、不推荐药物剂量；这些约束不是医学可靠性保证，产品尚未经临床验证。
 
 验证命令：
 
@@ -48,104 +48,3 @@ npm run test:agent
 ```
 
 自动化集成测试使用本机模拟模型服务验证真实工具调用协议、上下文、输入校验和错误恢复，不调用付费模型，不验证医学准确性。真实图片识别和回答质量需配置密钥后单独验证。
-
----
-
-以下为原演示项目文档（其中部署地址、缺失文档链接和旧范围描述仅作历史参考）。
-
-# Bitwins TCM Consultation MVP（原版）
-
-Standalone MVP for the TCM consultation page.
-
-## Run locally
-
-```bash
-npm run dev
-```
-
-Open `http://localhost:3000`.
-
-## Deploy
-
-Recommended production setup:
-
-- host on `Vercel`
-- send logs/metrics to `Better Stack`
-
-Deployment guide:
-
-- [docs/deploy-vercel-better-stack.md](/Users/lydiab/Desktop/bitwins/docs/deploy-vercel-better-stack.md)
-- [docs/release-checklist.md](/Users/lydiab/Desktop/bitwins/docs/release-checklist.md)
-- copy environment variables from `.env.example`
-
-Health check endpoint:
-
-- `/api/health`
-
-## Current scope
-
-The app currently implements one single-page TCM consultation flow:
-
-- quick topic tags
-- chief complaint input
-- symptom tag selection
-- mock follow-up questions
-- loading states
-- structured result cards
-- mock follow-up chat
-
-Out of scope for this MVP: homepage integration, payment, membership, real doctor integration, tongue diagnosis, pulse devices, full RAG, and PDF export.
-
-## Project structure
-
-```text
-src/
-  app/                 Next.js app entry
-  features/tcm/        TCM consultation page UI
-  services/            API/mock service boundary
-  types/               Shared TypeScript contracts
-```
-
-## Mock service boundary
-
-The page calls only the service functions in `src/services/tcmConsult.ts`:
-
-- `startConsultation()`
-- `submitFollowUp()`
-- `continueChat()`
-
-The shared request/response contracts live in `src/types/tcm.ts`.
-
-The default mode uses local mock data. To use DMXAPI, create `.env.local`:
-
-```bash
-DMX_API_KEY=sk-your-dmx-key
-DMX_BASE_URL=https://www.dmxapi.cn/v1
-DMX_TEXT_MODEL=gpt-5-mini
-DMX_VISION_MODEL=qwen3-vl-plus
-DMX_COMPARE_TEXT_MODELS=qwen-max-latest,deepseek-v4-pro,gpt-5
-NEXT_PUBLIC_TCM_SERVICE_MODE=dmx
-```
-
-Then restart `npm run dev`.
-
-The legacy DashScope/Qwen variables are still supported as a fallback:
-
-```bash
-DASHSCOPE_API_KEY=sk-your-key
-QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-QWEN_MODEL=qwen-plus
-QWEN_VISION_MODEL=qwen3-vl-plus
-NEXT_PUBLIC_TCM_SERVICE_MODE=qwen
-```
-
-In API mode, `submitFollowUp()` calls `/api/tcm/analyze` and `continueChat()` calls `/api/tcm/chat`. `startConsultation()` also calls `/api/tcm/start`.
-
-`DMX_COMPARE_TEXT_MODELS` powers the internal model comparison modal on the TCM result screen. The current setup compares the latest available Qwen, DeepSeek, and GPT text models on DMXAPI. If the current homepage main model is also in this list, the compare API reuses the already generated homepage result instead of calling the same model twice.
-
-## Verification
-
-```bash
-npm run lint
-npm run build
-```

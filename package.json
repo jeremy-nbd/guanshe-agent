@@ -1,5 +1,5 @@
 {
-  "name": "bitwins",
+  "name": "guanshe-agent",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -7,14 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:agent": "node scripts/test-agent.mjs",
-    "convert:tongue-ft:stage1": "node ft/convert-stage1-llamafactory.mjs",
-    "convert:tongue-ft:stage2": "node ft/convert-stage2-llamafactory.mjs",
-    "check:tongue-ft:stage1": "wc -l ft/output-stage1-llamafactory/train/data.jsonl ft/output-stage1-llamafactory/val/data.jsonl ft/output-stage1-llamafactory/test/data.jsonl",
-    "check:tongue-ft:stage2": "wc -l ft/output-stage2-llamafactory/train/data.jsonl ft/output-stage2-llamafactory/val/data.jsonl ft/output-stage2-llamafactory/test/data.jsonl",
-    "verify:deploy-env": "node scripts/verify-deploy-env.mjs",
-    "eval:qwen3-vl": "node ft/baseline-eval/scripts/eval-qwen3-vl-baseline.mjs",
-    "validate:tongue-ft": "node scripts/validate-tongue-ft.mjs"
+    "test:agent": "node scripts/test-agent.mjs"
   },
   "dependencies": {
     "next": "16.2.4",

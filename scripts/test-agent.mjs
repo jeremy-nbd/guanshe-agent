@@ -69,9 +69,13 @@ async function events(body) { const r = await post(body); assert.equal(r.status,
 async function check(name, fn) { await fn(); count++; console.log(`PASS ${name}`); }
 try {
   await start(true);
-  await check("configured status and both pages", async () => {
+  await check("configured status and standalone homepage", async () => {
     assert.equal((await (await fetch(`${base}/api/agent`)).json()).configured, true);
-    for (const path of ["/", "/classic"]) assert.equal((await fetch(base + path)).status, 200);
+    assert.equal((await fetch(base + "/")).status, 200);
+    const html = await (await fetch(base + "/")).text();
+    assert.ok(!html.includes('href="/classic"'));
+    for (const path of ["/classic", "/api/tcm/start", "/api/monitor"]) assert.equal((await fetch(base + path)).status, 404);
+    assert.equal((await (await fetch(base + "/api/health")).json()).service, "guanshe-agent");
   });
   await check("explicit demo does not call provider", async () => {
     const before = providerRequests.length;

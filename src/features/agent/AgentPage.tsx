@@ -216,7 +216,6 @@ export default function AgentPage() {
           {images.length > 0 && mode === "live" && <label className={styles.consent}><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} disabled={busy}/>我同意将本次照片和对话发送至配置的 AI 服务进行处理。</label>}
           <div className={styles.tips}><h3>拍照时，留意这三点</h3><p><span>01</span>自然光下拍摄，关闭美颜与滤镜</p><p><span>02</span>舌头自然伸出，让舌面完整入镜</p><p><span>03</span>保持清晰，避免食物染色后拍摄</p></div>
           <div className={styles.privacy}><Icon name="leaf" size={18}/><p>照片仅保留在当前页面内。真实 AI 模式会发送至所配置的模型服务；新建会话或刷新将清除照片。</p></div>
-          <a className={styles.legacyLink} href="/classic">打开原版会诊工作台 <span>↗</span></a>
         </aside>
       </div>
     </main>
