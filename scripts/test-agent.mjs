@@ -5,6 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 // Runs only against a local fake provider. No paid model calls or private data.
 const providerRequests = [];
+let visionBehavior = "normal";
 const provider = createServer(async (req, res) => {
   let raw = "";
   for await (const chunk of req) raw += chunk;
@@ -15,7 +16,9 @@ const provider = createServer(async (req, res) => {
   const toolResults = body.messages.filter(m => m.role === "tool");
   let message;
   const tool = (name, args = {}) => ({ role: "assistant", content: null, tool_calls: [{ id: "test-call", type: "function", function: { name, arguments: JSON.stringify(args) } }] });
-  if (body.model === "test-vision") message = { role: "assistant", content: "模拟观察：这是测试夹具，不能用于健康判断。" };
+  if (body.model === "test-vision" && visionBehavior === "failure") { res.writeHead(503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: { message: "test-vision-unavailable" } })); return; }
+  if (body.model === "test-vision") message = { role: "assistant", content: visionBehavior === "empty" ? "" : "模拟观察：这是测试夹具，不能用于健康判断。" };
+  else if (body.tool_choice?.function?.name === "observe_images") message = tool("observe_images");
   else if (latest === "测试上游失败") { res.writeHead(401, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: { message: "secret-provider-detail-never-show" } })); return; }
   else if (latest === "测试空回复") message = { role: "assistant", content: "" };
   else if (latest === "测试循环") message = tool("search_knowledge", { query: "疲惫" });
@@ -64,6 +67,7 @@ async function stop() {
   await new Promise(resolve => { current.once("exit", resolve); current.kill("SIGTERM"); });
 }
 const input = (text, extra = {}) => ({ mode: "live", messages: [{ role: "user", content: text }], images: [], ...extra });
+const testPhoto = { kind: "top", dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aMuoAAAAASUVORK5CYII=" };
 const post = (body, headers = {}) => fetch(`${base}/api/agent`, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
 async function events(body) { const r = await post(body); assert.equal(r.status, 200); return (await r.text()).trim().split("\n").map(JSON.parse); }
 async function check(name, fn) { await fn(); count++; console.log(`PASS ${name}`); }
@@ -102,6 +106,34 @@ try {
     assert.ok(result.some(e => e.label === "观察照片"));
     assert.ok(providerRequests.some(r => r.model === "test-vision" && r.messages[1].content.some(c => c.image_url?.url === dataUrl)));
     assert.match(result.find(e => e.type === "answer").text, /模拟观察/);
+    const observations = result.filter(e => e.type === "observation");
+    assert.deepEqual(observations.map(e => e.status), ["analyzing", "complete"]);
+    assert.match(observations[1].text, /模拟观察/);
+    assert.ok(result.indexOf(observations[1]) < result.findIndex(e => e.type === "answer"));
+  });
+  await check("explicit photo action forces observation without relying on prompt wording", async () => {
+    const before = providerRequests.length;
+    const result = await events(input("开始", { action: "observe", images: [testPhoto] }));
+    assert.equal(providerRequests[before].tool_choice.function.name, "observe_images");
+    assert.ok(result.some(e => e.type === "observation" && e.status === "complete"));
+  });
+  await check("photo failure and empty vision response never emit completed observation", async () => {
+    for (const behavior of ["failure", "empty"]) {
+      visionBehavior = behavior;
+      const result = await events(input("开始", { action: "observe", images: [testPhoto] }));
+      assert.ok(result.some(e => e.type === "observation" && e.status === "error"));
+      assert.ok(!result.some(e => e.type === "observation" && e.status === "complete"));
+      assert.match(result.find(e => e.type === "answer").text, /工具调用失败/);
+    }
+    visionBehavior = "normal";
+  });
+  await check("photo action validates attachments and keeps demo offline", async () => {
+    assert.equal((await post(input("开始", { action: "observe" }))).status, 400);
+    assert.equal((await post(input("开始", { action: "unknown" }))).status, 400);
+    const before = providerRequests.length;
+    const result = await events(input("开始", { action: "observe", mode: "demo" }));
+    assert.ok(!result.some(e => e.type === "observation"));
+    assert.equal(providerRequests.length, before);
   });
   await check("absent images cannot generate observations", async () => {
     const result = await events(input("测试照片"));

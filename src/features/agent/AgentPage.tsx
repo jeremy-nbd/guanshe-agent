@@ -5,8 +5,10 @@ import type { AgentEvent, AgentImage, AgentMessage } from "@/types/agent";
 import styles from "./agent.module.css";
 
 type Step = { label: string; detail: string };
-type Message = AgentMessage & { steps?: Step[] };
+type Message = AgentMessage & { steps?: Step[]; attachments?: string[] };
 type Session = { id: string; title: string; messages: Message[]; mode: "demo" | "live" };
+type PhotoFeedback = { phase: "empty" | "ready" | "submitting" | "analyzing" | "complete" | "error" | "skipped" | "demo"; text: string };
+const emptyPhotoFeedback: PhotoFeedback = { phase: "empty", text: "" };
 const photoLabels = { top: "舌面照片", underside: "舌下照片", face: "面部照片" };
 const starters = [
   { icon: "moon", title: "最近睡得不太好", desc: "从睡眠和白天的感受聊起", text: "最近睡得不太好，想梳理一下可能需要关注的生活习惯。" },
@@ -55,6 +57,18 @@ async function preparePhoto(file: File): Promise<string> {
   } finally { bitmap.close(); }
 }
 
+// Render common model formatting as React text nodes; never interpret raw HTML.
+function ReadableText({ text }: { text: string }) {
+  return <>{text.split("\n").map((line, index) => {
+    if (!line.trim()) return <br key={index}/>;
+    if (/^\s*([-*_])\1{2,}\s*$/.test(line)) return <hr key={index} className={styles.textDivider}/>;
+    const heading = /^#{1,6}\s+/.test(line);
+    const content = line.replace(/^#{1,6}\s+/, "").replace(/^\s*[-*]\s+/, "• ");
+    const spans = content.split(/(\*\*[^*]+\*\*)/g).map((part, i) => part.startsWith("**") && part.endsWith("**") ? <strong key={i}>{part.slice(2, -2)}</strong> : part);
+    return <div key={index} className={heading ? styles.textHeading : undefined}>{spans}</div>;
+  })}</>;
+}
+
 export default function AgentPage() {
   const [configured, setConfigured] = useState(false);
   const [ready, setReady] = useState(false);
@@ -65,6 +79,8 @@ export default function AgentPage() {
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoFeedback, setPhotoFeedback] = useState<PhotoFeedback>(emptyPhotoFeedback);
+  const [photoError, setPhotoError] = useState("");
   const [steps, setSteps] = useState<Step[]>([]);
   const [error, setError] = useState("");
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -75,6 +91,7 @@ export default function AgentPage() {
   const bottom = useRef<HTMLDivElement>(null);
   const photoPanel = useRef<HTMLElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
+  const submissionAction = useRef<"chat" | "observe">("chat");
 
   useEffect(() => {
     fetch("/api/agent").then(r => { if (!r.ok) throw new Error(); return r.json(); }).then(data => {
@@ -82,41 +99,60 @@ export default function AgentPage() {
     }).catch(() => { setError("暂时无法连接本地服务，请刷新重试。"); });
     return () => { abort.current?.abort(); };
   }, []);
-  useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy, steps]);
+  useEffect(() => { if (submissionAction.current === "chat") bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy, steps]);
 
   function remember() {
     if (messages.length) setSessions(prev => [{ id: sessionId, title: messages[0].content.slice(0, 16), messages, mode }, ...prev.filter(s => s.id !== sessionId)].slice(0, 8));
   }
   function newSession(nextMode = mode) {
+    setPhotoFeedback(emptyPhotoFeedback); setPhotoError("");
     remember(); setSessionId(crypto.randomUUID()); setMessages([]); setImages([]); setSteps([]); setError(""); setDraft(""); setConsent(false); setMode(nextMode);
   }
   function restore(s: Session) {
     if (s.id === sessionId) return;
+    setPhotoFeedback(emptyPhotoFeedback); setPhotoError("");
     remember(); setSessionId(s.id); setMessages(s.messages); setMode(s.mode); setImages([]); setSteps([]); setError(""); setDraft(""); setConsent(false);
   }
 
   async function upload(file: File | undefined, kind: AgentImage["kind"]) {
     if (!file || locked.current) return;
-    locked.current = true; setPhotoBusy(true); setError("");
-    try { const dataUrl = await preparePhoto(file); setImages(prev => [...prev.filter(i => i.kind !== kind), { kind, dataUrl }]); }
-    catch (e) { setError(e instanceof Error ? e.message : "照片读取失败，请换一张照片。"); }
+    locked.current = true; setPhotoBusy(true); setError(""); setPhotoError("");
+    try {
+      const dataUrl = await preparePhoto(file);
+      setImages(prev => [...prev.filter(i => i.kind !== kind), { kind, dataUrl }]);
+      setPhotoFeedback({ phase: "ready", text: `${photoLabels[kind]}已添加，尚未发送。点击下方按钮开始观察，无需先输入文字。` });
+    }
+    catch (e) { setPhotoError(e instanceof Error ? e.message : "照片读取失败，请换一张照片。"); }
     finally { locked.current = false; setPhotoBusy(false); }
   }
 
-  async function send(text = draft) {
+  function removePhoto(kind: AgentImage["kind"]) {
+    const remaining = images.filter(i => i.kind !== kind);
+    setImages(remaining); setPhotoError("");
+    setPhotoFeedback(remaining.length ? { phase: "ready", text: "照片已更新，请开始观察当前照片。" } : emptyPhotoFeedback);
+  }
+
+  async function send(text = draft, action: "chat" | "observe" = "chat") {
     if (!text.trim() || locked.current || !ready) return;
-    if (messages.length >= 40) { setError("本次会话已达 20 轮，请新建会话继续。"); return; }
-    if (mode === "live" && images.length && !consent) { setError("发送照片前，请勾选照片处理授权；也可以移除照片，仅用文字咨询。"); return; }
+    if (messages.length >= 40) { setError("本次会话已达 20 轮，请新建会话继续。"); if (action === "observe") setPhotoError("本次会话已达 20 轮，请新建会话后添加照片。"); return; }
+    if (mode === "live" && images.length && !consent) { setPhotoError("请先勾选下方照片处理授权，再开始观察或发送。"); photoPanel.current?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    if (action === "observe" && !images.length) return;
+    submissionAction.current = action;
+    const previousDraft = draft;
     locked.current = true; setBusy(true); setError(""); setDraft(""); setSteps([]);
+    setPhotoError("");
+    if (images.length) setPhotoFeedback({ phase: "submitting", text: mode === "live" ? `正在发送 ${images.length} 张照片，请稍候…` : "正在体验流程，不会发送或识别照片。" });
     const previous = messages;
-    const next: Message[] = [...messages, { role: "user", content: text.trim() }];
+    const next: Message[] = [...messages, { role: "user", content: text.trim(), attachments: mode === "live" ? images.map(i => photoLabels[i.kind]) : undefined }];
     setMessages(next);
     const controller = new AbortController(); abort.current = controller;
     const trace: Step[] = [];
     let answer = "";
     let doneReceived = false;
+    let observationReceived = false;
+    let observationComplete = false;
     try {
-      const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })), images: mode === "live" ? images : [], mode }), signal: controller.signal });
+      const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })), images: mode === "live" ? images : [], mode, action }), signal: controller.signal });
       if (!response.ok) { const body = await response.json(); throw new Error(body.error || "请求失败。"); }
       if (!response.body) throw new Error("浏览器不支持流式响应。");
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
@@ -125,6 +161,11 @@ export default function AgentPage() {
         const event = JSON.parse(line) as AgentEvent;
         if (event.type === "error") throw new Error(event.message);
         if (event.type === "step") { trace.push({ label: event.label, detail: event.detail }); setSteps([...trace]); }
+        if (event.type === "observation") {
+          observationReceived = true;
+          observationComplete = event.status === "complete";
+          setPhotoFeedback({ phase: event.status, text: event.text });
+        }
         if (event.type === "answer") answer = event.text;
         if (event.type === "done") doneReceived = true;
       }
@@ -138,15 +179,17 @@ export default function AgentPage() {
       buffer += decoder.decode(); receive(buffer);
       if (!doneReceived || !answer) throw new Error("回复未完整返回，请重试。");
       setMessages([...next, { role: "assistant", content: answer, steps: trace }]);
+      if (images.length && !observationReceived) setPhotoFeedback({ phase: mode === "demo" ? "demo" : "skipped", text: mode === "demo" ? "体验模式不识别照片。连接真实 AI 后，才能获得这组照片的观察结果。" : "本轮只完成文字回复，尚未观察照片。点击下方按钮即可单独观察。" });
     } catch (e) {
       controller.abort();
-      setMessages(previous); setDraft(text);
+      setMessages(previous); setDraft(action === "observe" ? previousDraft : text);
       setError(e instanceof Error && e.name !== "AbortError" ? e.message : "已停止。本次输入已保留，可修改后重新发送。");
+      if (images.length && !observationComplete) setPhotoFeedback({ phase: "error", text: e instanceof Error && e.name === "AbortError" ? "已停止观察，照片已保留。可以重新开始。" : "照片观察未完成，照片已保留。请检查连接后重试。" });
     } finally { setBusy(false); locked.current = false; abort.current = null; }
   }
 
   function download() {
-    const text = `观舌 · ${mode === "demo" ? "体验会话（非真实分析）" : "健康观察会话"}\n${new Date().toLocaleString("zh-CN")}\n仅供健康信息参考，不替代医生面诊。\n\n` + messages.map(m => `${m.role === "user" ? "我" : "观舌 Agent"}\n${m.content}`).join("\n\n────────────\n\n");
+    const text = `观舌 · ${mode === "demo" ? "体验会话（非真实分析）" : "健康观察会话"}\n${new Date().toLocaleString("zh-CN")}\n仅供健康信息参考，不替代医生面诊。\n\n` + messages.map(m => `${m.role === "user" ? "我" : "观舌 Agent"}\n${m.attachments?.length ? `附带照片：${m.attachments.join("、")}\n` : ""}${m.content}`).join("\n\n────────────\n\n");
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
     const a = document.createElement("a"); a.href = url; a.download = `观舌-会话记录-${new Date().toISOString().slice(0, 10)}.txt`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -184,7 +227,8 @@ export default function AgentPage() {
               {messages.map((m, index) => <article key={index} className={m.role === "user" ? styles.userMessage : styles.assistantMessage}>
                 {m.role === "assistant" && <div className={styles.assistantLabel}><span><Icon name="leaf" size={17}/></span>观舌 <small>HEALTH AGENT</small></div>}
                 {m.steps?.length ? <details className={styles.trace}><summary><Icon name="check" size={14}/>{mode === "demo" ? "体验流程" : `已完成 ${m.steps.length} 个处理步骤`}</summary>{m.steps.map((s, i) => <div key={i}><strong>{s.label}</strong><span>{s.detail}</span></div>)}</details> : null}
-                <div className={styles.messageText}>{m.content}</div>
+                <div className={styles.messageText}><ReadableText text={m.content}/></div>
+                {m.attachments?.length ? <div className={styles.messageAttachments}><Icon name="image" size={14}/>{m.attachments.join(" · ")}</div> : null}
               </article>)}
               {busy && <article className={styles.assistantMessage}><div className={styles.assistantLabel}><span className={styles.pulse}><Icon name="leaf" size={17}/></span>观舌正在处理</div><div className={styles.liveSteps} aria-live="polite">{steps.length ? steps.map((s, i) => <div key={i}><span className={styles.dot}/><strong>{s.label}</strong><small>{s.detail}</small></div>) : <p>正在连接…</p>}</div></article>}
               <div ref={bottom}/>
@@ -202,19 +246,32 @@ export default function AgentPage() {
         </section>
 
         <aside className={styles.observation} ref={photoPanel} tabIndex={-1}>
-          <div className={styles.panelTitle}><span><Icon name="image"/>观察资料</span><small>可选</small></div>
-          <p className={styles.panelIntro}>一张清晰的照片，<br/>让沟通多一份参考。</p>
+          <div className={styles.panelTitle}><span><Icon name="image"/>舌照观察</span><small>{images.length ? `${images.length} 张已添加` : "可选"}</small></div>
+          <p className={styles.panelIntro}>添加舌面照片，再点击「开始观察」。<br/>进度和观察结果会显示在这里。</p>
           <div className={styles.photoMain}>
-            {images.find(i => i.kind === "top") ? <div className={styles.photoPreview}><img src={images.find(i => i.kind === "top")!.dataUrl} alt="已选择的舌面照片"/><button aria-label="移除舌面照片" disabled={busy || photoBusy} onClick={() => setImages(prev => prev.filter(i => i.kind !== "top"))}><Icon name="close" size={15}/></button><span>舌面照片 · 已就绪</span></div> : <label className={styles.uploadArea}>
+            {images.find(i => i.kind === "top") ? <div className={styles.photoPreview}><img src={images.find(i => i.kind === "top")!.dataUrl} alt="已选择的舌面照片"/><button aria-label="移除舌面照片" disabled={busy || photoBusy} onClick={() => removePhoto("top")}><Icon name="close" size={15}/></button><label className={styles.replacePhoto}>更换照片<input type="file" aria-label="更换舌面照片" accept="image/jpeg,image/png,image/webp" disabled={busy || photoBusy} onChange={e => { void upload(e.target.files?.[0], "top"); e.target.value = ""; }}/></label><span>舌面照片</span></div> : <label className={styles.uploadArea}>
               <input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || photoBusy} onChange={e => { void upload(e.target.files?.[0], "top"); e.target.value = ""; }}/><div className={styles.photoGuide}><svg viewBox="0 0 84 70" fill="none" aria-hidden="true"><path d="M12 22V11h13m34 0h13v11M12 48v11h13m34 0h13V48" stroke="currentColor" strokeWidth="1.4"/><path d="M27 26c0-10 30-10 30 0v13c0 21-30 21-30 0V26Z" stroke="currentColor" strokeWidth="1.3"/><path d="M42 28v16" stroke="currentColor" opacity=".5"/></svg></div><strong>{photoBusy ? "正在处理照片…" : "上传舌面照片"}</strong><span>点击选择 · JPG / PNG / WebP</span><small><Icon name="plus" size={14}/> 添加照片</small>
             </label>}
           </div>
-          <div className={styles.extraPhotos}>{(["underside", "face"] as const).map(kind => {
+          <details className={styles.extraDetails}><summary>补充舌下或面部照片 <span>非必填{images.filter(i => i.kind !== "top").length ? ` · 已添加 ${images.filter(i => i.kind !== "top").length} 张` : ""}</span></summary><div className={styles.extraPhotos}>{(["underside", "face"] as const).map(kind => {
             const photo = images.find(i => i.kind === kind);
-            return <div key={kind}>{photo ? <><img src={photo.dataUrl} alt={photoLabels[kind]}/><span>{photoLabels[kind]}</span><button disabled={busy || photoBusy} onClick={() => setImages(prev => prev.filter(i => i.kind !== kind))} aria-label={`移除${photoLabels[kind]}`}><Icon name="close" size={13}/></button></> : <label><input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || photoBusy} onChange={e => { void upload(e.target.files?.[0], kind); e.target.value = ""; }}/><Icon name="plus" size={18}/><span>{photoLabels[kind]}</span></label>}</div>;
-          })}</div>
-          {images.length > 0 && mode === "live" && <label className={styles.consent}><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} disabled={busy}/>我同意将本次照片和对话发送至配置的 AI 服务进行处理。</label>}
-          <div className={styles.tips}><h3>拍照时，留意这三点</h3><p><span>01</span>自然光下拍摄，关闭美颜与滤镜</p><p><span>02</span>舌头自然伸出，让舌面完整入镜</p><p><span>03</span>保持清晰，避免食物染色后拍摄</p></div>
+            return <div key={kind}>{photo ? <><img src={photo.dataUrl} alt={photoLabels[kind]}/><span>{photoLabels[kind]}</span><button disabled={busy || photoBusy} onClick={() => removePhoto(kind)} aria-label={`移除${photoLabels[kind]}`}><Icon name="close" size={13}/></button></> : <label><input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || photoBusy} onChange={e => { void upload(e.target.files?.[0], kind); e.target.value = ""; }}/><Icon name="plus" size={18}/><span>{photoLabels[kind]}</span></label>}</div>;
+          })}</div></details>
+          <div className={styles.photoFeedback} data-phase={photoFeedback.phase} role="status" aria-live="polite" aria-atomic="true">
+            <strong>{photoBusy ? "正在准备照片…" : ({empty:"还没有添加照片",ready:"照片已添加 · 等待观察",submitting:"正在提交",analyzing:"正在观察照片…",complete:"照片观察已返回",error:"本次观察未完成",skipped:"照片尚未观察",demo:"体验流程已完成"})[photoFeedback.phase]}</strong>
+            {photoFeedback.phase !== "complete" && <p>{photoBusy ? "正在压缩照片，请稍候。" : photoFeedback.text || "可以先添加一张舌面照片，也可以只用文字聊天。"}</p>}
+            {photoFeedback.phase === "complete" && <p>结果见下方。可见特征与重拍提示仅供参考，不作为诊断结论。</p>}
+          </div>
+          {photoError && <p className={styles.photoError} role="alert">{photoError}</p>}
+          {images.length > 0 && mode === "live" && <label className={styles.consent}><input type="checkbox" checked={consent} onChange={e => { setConsent(e.target.checked); setPhotoError(""); }} disabled={busy}/>同意将本次照片和对话发送至配置的 AI 服务进行处理。</label>}
+          {mode === "demo" && images.length > 0 && <p className={styles.photoHint}>体验模式不识别照片。<button onClick={() => setShowSettings(true)}>连接真实 AI</button></p>}
+          <button className={styles.observeButton} disabled={photoBusy || !ready || (!busy && !images.length)} onClick={() => {
+            if (busy) abort.current?.abort();
+            else void send(draft.trim() ? `${draft.trim()}\n请先观察本次附带的照片，说明图片是否可用和可见特征，再结合我的描述继续。` : "请观察本次附带的照片，先说明图片是否可用；不可用时说明重拍原因，可用时整理可见特征并询问还需要补充的信息。", "observe");
+          }}><Icon name={busy ? "stop" : "spark"} size={17}/>{busy ? "停止本次处理" : mode === "demo" ? "体验照片流程" : photoFeedback.phase === "error" ? "重新观察" : photoFeedback.phase === "complete" ? "重新观察当前照片" : "开始观察"}</button>
+          {images.length > 0 && mode === "live" && !busy && !consent && <p className={styles.photoHint}>勾选上方授权后即可开始，无需输入文字。</p>}
+          {photoFeedback.phase === "complete" && <section className={styles.photoResultCard} aria-label="照片观察结果"><h3>本次照片观察</h3><div className={styles.photoResult}><ReadableText text={photoFeedback.text}/></div>{!busy && <button className={styles.resultJump} onClick={() => bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" })}>查看对话回复 ↗</button>}</section>}
+          <details className={styles.tips}><summary>拍照小提示</summary><p><span>01</span>自然光下拍摄，关闭美颜与滤镜</p><p><span>02</span>舌头自然伸出，让舌面完整入镜</p><p><span>03</span>保持清晰，避免食物染色后拍摄</p></details>
           <div className={styles.privacy}><Icon name="leaf" size={18}/><p>照片仅保留在当前页面内。真实 AI 模式会发送至所配置的模型服务；新建会话或刷新将清除照片。</p></div>
         </aside>
       </div>

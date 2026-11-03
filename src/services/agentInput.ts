@@ -4,6 +4,8 @@ export function parseAgentInput(value: unknown): AgentInput {
   if (!value || typeof value !== "object") throw new Error("请求格式不正确。");
   const v = value as Record<string, unknown>;
   if (v.mode !== "demo" && v.mode !== "live") throw new Error("请选择体验或真实 AI 模式。");
+  const action = v.action ?? "chat";
+  if (action !== "chat" && action !== "observe") throw new Error("不支持的操作。");
   if (!Array.isArray(v.messages) || !v.messages.length || v.messages.length > 40) throw new Error("一次会话最多 20 轮，请开启新会话。");
   let total = 0;
   const messages: AgentMessage[] = v.messages.map((m, i) => {
@@ -26,5 +28,6 @@ export function parseAgentInput(value: unknown): AgentInput {
     if (!valid) throw new Error("照片内容与格式不符，请重新选择。");
     return { kind: img.kind, dataUrl: img.dataUrl };
   });
-  return { messages, images, mode: v.mode };
+  if (action === "observe" && v.mode === "live" && !images.length) throw new Error("请先添加一张照片，再开始观察。");
+  return { messages, images, mode: v.mode, action };
 }
