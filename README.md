@@ -4,6 +4,11 @@
 
 ## 技术流程图
 
+![观舌 Agent 技术总览：网页输入、Agent 调度、视觉观察与知识检索，以及实时反馈](docs/assets/architecture.svg)
+
+<details>
+<summary>展开完整技术流程</summary>
+
 ```mermaid
 flowchart TD
     User[用户输入近况 / 选择照片] --> Web[Next.js + React 网页]
@@ -35,6 +40,8 @@ flowchart TD
     UI --> Conversation[对话回复 / 附件标记 / 会话导出]
     Conversation -->|继续补充| User
 ```
+
+</details>
 
 **两种触发方式：**“开始观察”指定首轮调用 `observe_images`，随后将视觉结果交给文本模型继续整理；普通聊天由 Agent 按需选择工具。照片工具通过独立 `observation` 事件报告开始、完成或失败，因此右侧可以在最终聊天回复生成前展示观察结果。
 
