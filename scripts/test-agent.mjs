@@ -41,7 +41,7 @@ async function start(configured, legacy = false) {
   const port = probe.address().port;
   await new Promise(resolve => probe.close(resolve));
   base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", String(port)], {
+  child = spawn(process.env.PYTHON || ".venv/bin/python", ["run.py", "--host", "127.0.0.1", "--port", String(port)], {
     env: { ...process.env,
       LLM_API_KEY: configured && !legacy ? "test-only-not-a-real-key" : "",
       LLM_BASE_URL: legacy ? "" : `http://127.0.0.1:${providerPort}/v1`,
@@ -55,7 +55,7 @@ async function start(configured, legacy = false) {
   });
   let stderr = ""; child.stderr.on("data", c => { stderr += c.toString(); });
   for (let i = 0; i < 100; i++) {
-    if (child.exitCode !== null) throw new Error(`Next exited: ${stderr.slice(-2000)}`);
+    if (child.exitCode !== null) throw new Error(`Python exited: ${stderr.slice(-2000)}`);
     try { if ((await fetch(`${base}/api/agent`)).ok) return; } catch {}
     await delay(200);
   }

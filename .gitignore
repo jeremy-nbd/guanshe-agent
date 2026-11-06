@@ -7,3 +7,7 @@ next-env.d.ts
 output/
 .DS_Store
 *.log
+.venv/
+__pycache__/
+*.pyc
+out/

@@ -22,7 +22,7 @@
   <rect x="48" y="224" width="240" height="300" rx="18" fill="#fffefa" stroke="#dce4d7"/>
   <text x="72" y="258" class="muted" font-size="11" letter-spacing="2">01 / WEB</text>
   <text x="72" y="297" class="ink" font-size="25" font-weight="600">文字与照片</text>
-  <text x="72" y="326" class="body">Next.js + React</text>
+  <text x="72" y="326" class="body">React 静态网页</text>
   <path d="M72 350H264" stroke="#e3e9dd"/>
   <text x="72" y="383" class="body">说说近况，或添加照片</text>
   <text x="72" y="415" class="body">本地预览与图片压缩</text>
@@ -32,11 +32,11 @@
 
   <path d="M288 368H328" class="line"/>
   <rect x="328" y="224" width="440" height="300" rx="18" fill="#315c4f"/>
-  <text x="356" y="258" fill="#bcd0bf" font-size="11" letter-spacing="2">02 / AGENT</text>
+  <text x="356" y="258" fill="#bcd0bf" font-size="11" letter-spacing="2">02 / PYTHON AGENT</text>
   <text x="356" y="297" fill="#fffef5" font-size="25" font-weight="600">理解上下文，选择下一步</text>
   <text x="356" y="327" fill="#d2dfcf" font-size="17">Qwen · qwen3.5-plus</text>
   <rect x="356" y="350" width="384" height="60" rx="10" fill="#416b5d"/>
-  <text x="374" y="375" fill="#eff5e9" class="mono">POST /api/agent</text>
+  <text x="374" y="375" fill="#eff5e9" class="mono">FastAPI /api/agent</text>
   <text x="374" y="397" fill="#c9d9c8" font-size="13">同源校验 · 输入校验 · 超时与取消</text>
   <text x="356" y="446" fill="#e4eddd" font-size="17">理解问题 → 调用工具 → 整理回复</text>
   <text x="356" y="490" fill="#bcd0bf" font-size="13">最多 5 轮决策 / 6 次工具调用</text>

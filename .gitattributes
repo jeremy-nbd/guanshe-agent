@@ -1,0 +1,3 @@
+web/** linguist-generated=true -whitespace
+data/** linguist-vendored=true
+docs/dependency-licenses.txt linguist-vendored=true
